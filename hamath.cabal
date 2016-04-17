@@ -30,6 +30,7 @@ executable hamath-exe
                      , lens
                      , mtl
                      , time
+                     , containers
   default-language:    Haskell2010
 
 test-suite hamath-test

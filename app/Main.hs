@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
+
 module Main where
 
 import SDL hiding (get)
@@ -8,10 +10,10 @@ import Linear.Affine (Point(..))
 import Control.Monad (unless)
 
 import Control.Monad.State
-import Data.Functor.Identity
 
 import Control.Concurrent ( threadDelay )
 import Data.Time.Clock.POSIX ( getPOSIXTime )
+import qualified Data.Set as Set
 
 import           Control.Lens ((&), (%~), (.~), (^.), makeLenses)
 
@@ -25,9 +27,8 @@ data Player =
   , _canJumpedTwice :: !Bool
   , _dx :: !Float
   , _dy :: !Float
-  , _leftPressed :: !Bool
-  , _rightPressed :: !Bool
   , _canJump :: !Bool
+  , _jumpWasReleased :: !Bool
   }
   deriving ( Show, Eq )
 
@@ -43,9 +44,11 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
     when ( not keyJumpPressed && pl ^. canJumpedTwice ) ( modify ( mayJump .~ True ) )
     modify ( & dx %~ (*) 0.9 )
 
+  unless keyJumpPressed ( modify ( & jumpWasReleased .~ True ) )
+
   if keyJumpPressed && ( pl ^. mayJump || pl ^.isOnSolidGround ) && ( pl ^. canJump || not ( pl ^. isOnSolidGround ) )
   then do
-    modify ( ( & canJump .~ False ) . ( & dy .~ -10 ) )
+    modify ( ( & canJump .~ False ) . ( & dy .~ -10 ) . ( & jumpWasReleased .~ False ) )
     if pl ^. isOnSolidGround
     then
       modify ( & isOnSolidGround .~ False )
@@ -56,25 +59,34 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
     when ( keyJumpPressed && ( pl ^. dy ) < 0 ) ( modify ( & dy %~ \ x -> x - 0.5 ) )
     modify ( & dy %~ (+) 1.0 )
 
-  pl <- get
-  when ( ( pl ^. dy ) > 5 ) ( modify ( & dy .~ 5 ) )
+  when keyLeftPressed ( modify ( & dx .~ -3 ) )
+  when keyRightPressed ( modify ( & dx .~ 3 ) )
 
-  when keyLeftPressed ( modify ( \ pl -> pl & dx .~ -3 ) )
-  when keyRightPressed ( modify ( \ pl -> pl & dx .~ 3 ) )
-
+  modify restrict
   modify updatePos
+
+  modify collisionDetection
 
   pl <- get
   let V2 x y = pl ^. pos
-  when ( y > 395 && not keyJumpPressed ) ( modify ( & canJump .~ True ) )
-  when ( y > 400 ) $
-    modify $ ( & pos .~ V2 x 400 )
-      . ( & dy .~ 0 )
-      . ( & isOnSolidGround .~ True )
-      . ( & mayJump .~ False )
-      . ( & canJumpedTwice .~ True )
+  when ( y >= 400 && pl ^. jumpWasReleased ) ( modify ( & canJump .~ True ) )
 
   get
+
+collisionDetection :: Player -> Player
+collisionDetection pl =
+  if y > 400 then pl & pos .~ V2 x 400
+      & dy .~ 0
+      & isOnSolidGround .~ True
+      & mayJump .~ False
+      & canJumpedTwice .~ True
+    else pl
+  where
+    V2 x y = pl ^. pos
+
+restrict :: Player -> Player
+restrict pl@Player{..}
+  = pl & dy %~ min 5 & dx %~ \ dx -> if abs dx < 0.01 then 0 else dx
 
 updatePos :: Player -> Player
 updatePos pl = pl & pos %~ (+) ( V2 ( pl ^. dx ) ( pl ^. dy ) )
@@ -87,22 +99,18 @@ main = do
   initializeAll
   window <- createWindow "My SDL Application" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
-  appLoop [] p p renderer
+  appLoop Set.empty p p renderer
   quit
   where
-    p = Player ( V2 300 400 ) True False False 0 0 False False True
+    p = Player ( V2 300 400 ) True False False 0 0 True False
 
-keyPressed event code =
+keyPressed = keyWithState Pressed
+keyReleased = keyWithState Released
+
+keyWithState state event code =
   case eventPayload event of
     KeyboardEvent keyboardEvent ->
-      keyboardEventKeyMotion keyboardEvent == Pressed &&
-      keysymKeycode (keyboardEventKeysym keyboardEvent) == code
-    _ -> False
-
-keyReleased event code =
-  case eventPayload event of
-    KeyboardEvent keyboardEvent ->
-      keyboardEventKeyMotion keyboardEvent == Released &&
+      keyboardEventKeyMotion keyboardEvent == state &&
       keysymKeycode (keyboardEventKeysym keyboardEvent) == code
     _ -> False
 
@@ -113,21 +121,13 @@ draw renderer player =
     pPos = fmap round $ player ^. pos
     size = V2 20 20
 
-del :: Eq a => [ a ] -> a -> [ a ]
-del [] _ = []
-del ( x : xs ) a = if x == a then xs else x : del xs a
-
-add :: Eq a => [ a ] -> a -> [ a ]
-add [] a = [ a ]
-add ( x : xs ) a = if x == a then x : xs else x : add xs a
-
-setKeyState :: [ Event ] -> [ Keycode ] -> Keycode -> [ Keycode ]
+setKeyState :: [ Event ] -> Set.Set Keycode -> Keycode -> Set.Set Keycode
 setKeyState events keys code
-  | any ( `keyPressed` code )  events = add keys code
-  | any ( `keyReleased` code ) events = del keys code
+  | any ( `keyPressed` code )  events = Set.insert code keys
+  | any ( `keyReleased` code ) events = Set.delete code keys
   | otherwise                         = keys
 
-appLoop :: [ Keycode ] -> Player -> Player -> Renderer -> IO ()
+appLoop :: Set.Set Keycode -> Player -> Player -> Renderer -> IO ()
 appLoop keys prevPlayer player renderer = do
   s <- getPOSIXTime
   events <- pollEvents
@@ -150,8 +150,6 @@ appLoop keys prevPlayer player renderer = do
   when ( prevPlayer /= pl ) ( print pl )
 
   present renderer
-
-  print ukeys
 
   e <- getPOSIXTime
 
