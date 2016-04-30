@@ -4,10 +4,10 @@
 
 module Main where
 
-import SDL hiding (get)
-import Linear (V4(..), V2(..))
-import Linear.Affine (Point(..))
-import Control.Monad (unless)
+import SDL hiding ( get )
+import Linear ( V4(..), V2(..) )
+import Linear.Affine ( Point(..) )
+import Control.Monad ( unless )
 
 import Control.Monad.State
 
@@ -15,7 +15,7 @@ import Control.Concurrent ( threadDelay )
 import Data.Time.Clock.POSIX ( getPOSIXTime )
 import qualified Data.Set as Set
 
-import           Control.Lens ((&), (%~), (.~), (^.), makeLenses)
+import           Control.Lens ( (&), (%~), (.~), (^.), makeLenses )
 
 type Position = V2 Float
 
@@ -86,7 +86,7 @@ collisionDetection pl =
 
 restrict :: Player -> Player
 restrict pl@Player{..}
-  = pl & dy %~ min 5 & dx %~ \ dx -> if abs dx < 0.01 then 0 else dx
+  = pl & dy %~ min 7 & dx %~ \ dx -> if abs dx < 0.01 then 0 else dx
 
 updatePos :: Player -> Player
 updatePos pl = pl & pos %~ (+) ( V2 ( pl ^. dx ) ( pl ^. dy ) )
@@ -97,9 +97,9 @@ onGround = get >>= \p -> return ( p ^.isOnSolidGround )
 main :: IO ()
 main = do
   initializeAll
-  window <- createWindow "My SDL Application" defaultWindow
+  window <- createWindow "Hamath" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
-  appLoop Set.empty p p renderer
+  void $ evalStateT appLoop ( App Set.empty p renderer )
   quit
   where
     p = Player ( V2 300 400 ) True False False 0 0 True False
@@ -114,7 +114,7 @@ keyWithState state event code =
       keysymKeycode (keyboardEventKeysym keyboardEvent) == code
     _ -> False
 
-draw :: Renderer -> Player -> IO ()
+-- draw :: MonadIO m => Renderer -> Player -> m ()
 draw renderer player =
   drawRect renderer ( Just ( Rectangle ( P  ( pPos - size ) ) size ) )
   where
@@ -127,33 +127,52 @@ setKeyState events keys code
   | any ( `keyReleased` code ) events = Set.delete code keys
   | otherwise                         = keys
 
-appLoop :: Set.Set Keycode -> Player -> Player -> Renderer -> IO ()
-appLoop keys prevPlayer player renderer = do
-  s <- getPOSIXTime
-  events <- pollEvents
-  let pl = evalState ( update uPressed lPressed rPressed ) player
-      ukeys = foldl ( setKeyState events ) keys [ KeycodeUp, KeycodeRight, KeycodeLeft ]
+type AppLoop r = StateT App IO r
 
-      qPressed = any ( `keyPressed` KeycodeQ ) events
-      uPressed = KeycodeUp `elem` ukeys -- any ( `keyPressed` KeycodeUp ) events
-      rPressed = KeycodeRight `elem` ukeys
-      lPressed = KeycodeLeft `elem` ukeys
+data App = App
+  { _keys     :: !( Set.Set Keycode )
+  , _player   :: !Player
+  , _renderer :: !Renderer
+  } deriving( Show, Eq )
 
-  rendererDrawColor renderer $= V4 0 0 255 255
-  clear renderer
-  rendererDrawColor renderer $= V4 0 0 0 0
+updatePlayer :: [Event] -> App -> App
+updatePlayer events app@App{..} = app{ _keys = ukeys, _player = pl }
+  where
+    pl = evalState ( update uPressed lPressed rPressed ) _player
+    ukeys = foldl ( setKeyState events ) _keys [ KeycodeUp, KeycodeRight, KeycodeLeft, KeycodeQ ]
 
-  draw renderer pl
+    uPressed = KeycodeUp `elem` ukeys -- any ( `keyPressed` KeycodeUp ) events
+    rPressed = KeycodeRight `elem` ukeys
+    lPressed = KeycodeLeft `elem` ukeys
 
-  drawRect renderer ( Just ( Rectangle ( P  ( V2 0 400 ) ) ( V2 600 400 ) ) )
+drawScene :: MonadIO m => App -> m ()
+drawScene App{..} = do
+  rendererDrawColor _renderer $= V4 0 0 255 255
+  clear _renderer
+  rendererDrawColor _renderer $= V4 0 0 0 0
 
-  when ( prevPlayer /= pl ) ( print pl )
+  draw _renderer _player
 
-  present renderer
+  drawRect _renderer ( Just ( Rectangle ( P  ( V2 0 400 ) ) ( V2 600 400 ) ) )
 
-  e <- getPOSIXTime
+  present _renderer
+
+qPressed :: AppLoop Bool
+qPressed = do
+  app <- get
+  return $ KeycodeQ `Set.member` _keys app
+
+appLoop :: AppLoop ()
+appLoop = do
+  s <- lift getPOSIXTime
+  pollEvents >>= \events -> modify ( updatePlayer events )
+
+  get >>= drawScene
+
+  e <- lift getPOSIXTime
 
   let x = round e - round s
-  threadDelay ( 1000 * ( ( 1000 `div` 60 ) - x ) )
+  lift $ threadDelay ( 1000 * ( ( 1000 `div` 60 ) - x ) )
 
-  unless qPressed (appLoop ukeys player pl renderer)
+  q <- qPressed
+  unless q appLoop
