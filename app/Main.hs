@@ -34,6 +34,26 @@ data Player =
 
 makeLenses ''Player
 
+type AppLoop r = StateT App IO r
+
+data App = App
+  { _keys     :: !( Set.Set Keycode )
+  , _player   :: !Player
+  , _renderer :: !Renderer
+  } deriving( Show, Eq )
+
+data Obstacle = Obstacle !Position !Float !Float
+  deriving ( Show, Eq )
+
+intersect :: Player -> Obstacle -> Bool
+intersect Player{..} ( Obstacle ( V2 x y ) w h ) = not $
+  ( px > x + w ) || ( px + pW < x ) ||
+  ( py < y )-- || ( py + pH < y )
+  where
+    V2 px py = _pos
+    pW = 20
+    pH = 20
+
 update :: Bool -> Bool -> Bool -> State Player Player
 update keyJumpPressed keyLeftPressed keyRightPressed = do
   pl <- get
@@ -73,9 +93,11 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
 
   get
 
+obs = Obstacle ( V2 0 400 ) 800 50
+
 collisionDetection :: Player -> Player
 collisionDetection pl =
-  if y > 400 then pl & pos .~ V2 x 400
+  if pl `intersect` obs then pl & pos .~ V2 x 400
       & dy .~ 0
       & isOnSolidGround .~ True
       & mayJump .~ False
@@ -114,12 +136,19 @@ keyWithState state event code =
       keysymKeycode (keyboardEventKeysym keyboardEvent) == code
     _ -> False
 
--- draw :: MonadIO m => Renderer -> Player -> m ()
+draw :: MonadIO m => Renderer -> Player -> m ()
 draw renderer player =
   drawRect renderer ( Just ( Rectangle ( P  ( pPos - size ) ) size ) )
   where
     pPos = fmap round $ player ^. pos
     size = V2 20 20
+
+drawObs :: MonadIO m => Renderer -> Obstacle -> m ()
+drawObs renderer ( Obstacle pos w h ) =
+  drawRect renderer ( Just ( Rectangle ( P ppos ) size ) )
+  where
+    ppos = round <$> pos
+    size = round <$> V2 w h
 
 setKeyState :: [ Event ] -> Set.Set Keycode -> Keycode -> Set.Set Keycode
 setKeyState events keys code
@@ -127,21 +156,13 @@ setKeyState events keys code
   | any ( `keyReleased` code ) events = Set.delete code keys
   | otherwise                         = keys
 
-type AppLoop r = StateT App IO r
-
-data App = App
-  { _keys     :: !( Set.Set Keycode )
-  , _player   :: !Player
-  , _renderer :: !Renderer
-  } deriving( Show, Eq )
-
 updatePlayer :: [Event] -> App -> App
 updatePlayer events app@App{..} = app{ _keys = ukeys, _player = pl }
   where
     pl = evalState ( update uPressed lPressed rPressed ) _player
     ukeys = foldl ( setKeyState events ) _keys [ KeycodeUp, KeycodeRight, KeycodeLeft, KeycodeQ ]
 
-    uPressed = KeycodeUp `elem` ukeys -- any ( `keyPressed` KeycodeUp ) events
+    uPressed = KeycodeUp `elem` ukeys
     rPressed = KeycodeRight `elem` ukeys
     lPressed = KeycodeLeft `elem` ukeys
 
@@ -152,8 +173,7 @@ drawScene App{..} = do
   rendererDrawColor _renderer $= V4 0 0 0 0
 
   draw _renderer _player
-
-  drawRect _renderer ( Just ( Rectangle ( P  ( V2 0 400 ) ) ( V2 600 400 ) ) )
+  drawObs _renderer obs
 
   present _renderer
 
