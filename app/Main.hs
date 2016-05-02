@@ -17,6 +17,8 @@ import qualified Data.Set as Set
 
 import           Control.Lens ( (&), (%~), (.~), (^.), makeLenses )
 
+import           Hamath.Map
+
 type Position = V2 Float
 
 data Player =
@@ -34,6 +36,13 @@ data Player =
 
 makeLenses ''Player
 
+instance Collisionable Player where
+  toRect Player{..} = ( px, py, 20, 20 )
+    where
+      V2 px py = _pos
+
+obs = Obstacle 0 400 800 50
+
 type AppLoop r = StateT App IO r
 
 data App = App
@@ -41,18 +50,6 @@ data App = App
   , _player   :: !Player
   , _renderer :: !Renderer
   } deriving( Show, Eq )
-
-data Obstacle = Obstacle !Position !Float !Float
-  deriving ( Show, Eq )
-
-intersect :: Player -> Obstacle -> Bool
-intersect Player{..} ( Obstacle ( V2 x y ) w h ) = not $
-  ( px > x + w ) || ( px + pW < x ) ||
-  ( py < y )-- || ( py + pH < y )
-  where
-    V2 px py = _pos
-    pW = 20
-    pH = 20
 
 update :: Bool -> Bool -> Bool -> State Player Player
 update keyJumpPressed keyLeftPressed keyRightPressed = do
@@ -89,15 +86,13 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
 
   pl <- get
   let V2 x y = pl ^. pos
-  when ( y >= 400 && pl ^. jumpWasReleased ) ( modify ( & canJump .~ True ) )
+  when ( y >= 380 && pl ^. jumpWasReleased ) ( modify ( & canJump .~ True ) )
 
   get
 
-obs = Obstacle ( V2 0 400 ) 800 50
-
 collisionDetection :: Player -> Player
 collisionDetection pl =
-  if pl `intersect` obs then pl & pos .~ V2 x 400
+  if pl `intersect` obs then pl & pos .~ V2 x 380
       & dy .~ 0
       & isOnSolidGround .~ True
       & mayJump .~ False
@@ -124,7 +119,7 @@ main = do
   void $ evalStateT appLoop ( App Set.empty p renderer )
   quit
   where
-    p = Player ( V2 300 400 ) True False False 0 0 True False
+    p = Player ( V2 300 350 ) True False False 0 0 True False
 
 keyPressed = keyWithState Pressed
 keyReleased = keyWithState Released
@@ -138,16 +133,16 @@ keyWithState state event code =
 
 draw :: MonadIO m => Renderer -> Player -> m ()
 draw renderer player =
-  drawRect renderer ( Just ( Rectangle ( P  ( pPos - size ) ) size ) )
+  drawRect renderer ( Just ( Rectangle ( P  pPos ) size ) )
   where
     pPos = fmap round $ player ^. pos
     size = V2 20 20
 
 drawObs :: MonadIO m => Renderer -> Obstacle -> m ()
-drawObs renderer ( Obstacle pos w h ) =
+drawObs renderer ( Obstacle x y w h ) =
   drawRect renderer ( Just ( Rectangle ( P ppos ) size ) )
   where
-    ppos = round <$> pos
+    ppos = round <$> V2 x y
     size = round <$> V2 w h
 
 setKeyState :: [ Event ] -> Set.Set Keycode -> Keycode -> Set.Set Keycode
