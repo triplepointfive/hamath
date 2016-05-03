@@ -18,6 +18,7 @@ import qualified Data.Set as Set
 import           Control.Lens ( (&), (%~), (.~), (^.), makeLenses )
 
 import           Hamath.Map
+import           Hamath.Draw 
 
 type Position = V2 Float
 
@@ -131,19 +132,19 @@ keyWithState state event code =
       keysymKeycode (keyboardEventKeysym keyboardEvent) == code
     _ -> False
 
-draw :: MonadIO m => Renderer -> Player -> m ()
-draw renderer player =
-  drawRect renderer ( Just ( Rectangle ( P  pPos ) size ) )
-  where
-    pPos = fmap round $ player ^. pos
-    size = V2 20 20
+-- draw :: MonadIO m => Renderer -> Player -> m ()
+-- draw renderer player =
+  -- drawRect renderer ( Just ( Rectangle ( P  pPos ) size ) )
+  -- where
+    -- pPos = fmap round $ player ^. pos
+    -- size = V2 20 20
 
-drawObs :: MonadIO m => Renderer -> Obstacle -> m ()
-drawObs renderer ( Obstacle x y w h ) =
-  drawRect renderer ( Just ( Rectangle ( P ppos ) size ) )
-  where
-    ppos = round <$> V2 x y
-    size = round <$> V2 w h
+-- drawObs :: MonadIO m => Renderer -> Obstacle -> m ()
+-- drawObs renderer ( Obstacle x y w h ) =
+  -- drawRect renderer ( Just ( Rectangle ( P ppos ) size ) )
+  -- where
+    -- ppos = round <$> V2 x y
+    -- size = round <$> V2 w h
 
 setKeyState :: [ Event ] -> Set.Set Keycode -> Keycode -> Set.Set Keycode
 setKeyState events keys code
@@ -168,7 +169,7 @@ drawScene App{..} = do
   rendererDrawColor _renderer $= V4 0 0 0 0
 
   draw _renderer _player
-  drawObs _renderer obs
+  draw _renderer obs
 
   present _renderer
 
