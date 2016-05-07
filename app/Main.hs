@@ -18,7 +18,7 @@ import qualified Data.Set as Set
 import           Control.Lens ( (&), (%~), (.~), (^.), makeLenses )
 
 import           Hamath.Map
-import           Hamath.Draw 
+import           Hamath.Draw
 
 type Position = V2 Float
 
@@ -42,7 +42,11 @@ instance Collisionable Player where
     where
       V2 px py = _pos
 
-obs = Obstacle 0 400 800 50
+obss = [ Obstacle 0 400 800 50
+       , Obstacle 0 200 50 200
+       , Obstacle 450 200 50 200
+       , Obstacle 50 250 150 10
+       ]
 
 type AppLoop r = StateT App IO r
 
@@ -81,33 +85,35 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
   when keyRightPressed ( modify ( & dx .~ 3 ) )
 
   modify restrict
-  modify updatePos
-
-  modify collisionDetection
+  modify moveHorizontal
+  modify moveVertical
 
   pl <- get
   let V2 x y = pl ^. pos
-  when ( y >= 380 && pl ^. jumpWasReleased ) ( modify ( & canJump .~ True ) )
+  when ( pl ^. isOnSolidGround && pl ^. jumpWasReleased ) ( modify ( & canJump .~ True ) )
 
   get
-
-collisionDetection :: Player -> Player
-collisionDetection pl =
-  if pl `intersect` obs then pl & pos .~ V2 x 380
-      & dy .~ 0
-      & isOnSolidGround .~ True
-      & mayJump .~ False
-      & canJumpedTwice .~ True
-    else pl
-  where
-    V2 x y = pl ^. pos
 
 restrict :: Player -> Player
 restrict pl@Player{..}
   = pl & dy %~ min 7 & dx %~ \ dx -> if abs dx < 0.01 then 0 else dx
 
-updatePos :: Player -> Player
-updatePos pl = pl & pos %~ (+) ( V2 ( pl ^. dx ) ( pl ^. dy ) )
+moveVertical :: Player -> Player
+moveVertical pl
+  | any ( uPl `intersect` ) obss = pl & dy .~ 0
+    & isOnSolidGround .~ True
+    & mayJump .~ False
+    & canJumpedTwice .~ True
+  | otherwise = uPl
+  where
+    uPl = pl & pos %~ (+) ( V2 0 ( pl ^. dy ) )
+
+moveHorizontal :: Player -> Player
+moveHorizontal pl
+  | any ( uPl `intersect` ) obss = pl & dx .~ 0
+  | otherwise = uPl
+  where
+    uPl = pl & pos %~ (+) ( V2 ( pl ^. dx ) 0 )
 
 onGround :: State Player Bool
 onGround = get >>= \p -> return ( p ^.isOnSolidGround )
@@ -132,20 +138,6 @@ keyWithState state event code =
       keysymKeycode (keyboardEventKeysym keyboardEvent) == code
     _ -> False
 
--- draw :: MonadIO m => Renderer -> Player -> m ()
--- draw renderer player =
-  -- drawRect renderer ( Just ( Rectangle ( P  pPos ) size ) )
-  -- where
-    -- pPos = fmap round $ player ^. pos
-    -- size = V2 20 20
-
--- drawObs :: MonadIO m => Renderer -> Obstacle -> m ()
--- drawObs renderer ( Obstacle x y w h ) =
-  -- drawRect renderer ( Just ( Rectangle ( P ppos ) size ) )
-  -- where
-    -- ppos = round <$> V2 x y
-    -- size = round <$> V2 w h
-
 setKeyState :: [ Event ] -> Set.Set Keycode -> Keycode -> Set.Set Keycode
 setKeyState events keys code
   | any ( `keyPressed` code )  events = Set.insert code keys
@@ -169,7 +161,7 @@ drawScene App{..} = do
   rendererDrawColor _renderer $= V4 0 0 0 0
 
   draw _renderer _player
-  draw _renderer obs
+  mapM_ ( draw _renderer ) obss
 
   present _renderer
 
