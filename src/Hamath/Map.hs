@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Hamath.Map where
 
 import Linear.Affine ( Point(..) )
@@ -20,3 +21,10 @@ class Collisionable a where
 
 instance Collisionable Obstacle where
   toRect ( Obstacle x y w h ) = ( x, y, w, h )
+
+data Map = Map
+  { obstacles :: ![ Obstacle ]
+  } deriving ( Show, Eq )
+
+mapCollise :: Collisionable a => Map -> a -> Bool
+mapCollise Map{..} obj = any ( intersect obj ) obstacles

@@ -26,11 +26,11 @@ data Player =
   Player
   { _pos             :: !Position
   , _isOnSolidGround :: !Bool
-  , _mayJump :: !Bool
-  , _canJumpedTwice :: !Bool
-  , _dx :: !Float
-  , _dy :: !Float
-  , _canJump :: !Bool
+  , _mayJump         :: !Bool
+  , _canJumpedTwice  :: !Bool
+  , _dx              :: !Float
+  , _dy              :: !Float
+  , _canJump         :: !Bool
   , _jumpWasReleased :: !Bool
   }
   deriving ( Show, Eq )
@@ -42,11 +42,8 @@ instance Collisionable Player where
     where
       V2 px py = _pos
 
-obss = [ Obstacle 0 400 800 50
-       , Obstacle 0 200 50 200
-       , Obstacle 450 200 50 200
-       , Obstacle 50 250 150 10
-       ]
+instance Drawable Player where
+  draw = drawCollisionable
 
 type AppLoop r = StateT App IO r
 
@@ -54,10 +51,11 @@ data App = App
   { _keys     :: !( Set.Set Keycode )
   , _player   :: !Player
   , _renderer :: !Renderer
+  , _map      :: !Map
   } deriving( Show, Eq )
 
-update :: Bool -> Bool -> Bool -> State Player Player
-update keyJumpPressed keyLeftPressed keyRightPressed = do
+update :: Map -> Bool -> Bool -> Bool -> State Player Player
+update map keyJumpPressed keyLeftPressed keyRightPressed = do
   pl <- get
   if pl ^. isOnSolidGround
   then
@@ -85,8 +83,8 @@ update keyJumpPressed keyLeftPressed keyRightPressed = do
   when keyRightPressed ( modify ( & dx .~ 3 ) )
 
   modify restrict
-  modify moveHorizontal
-  modify moveVertical
+  modify ( moveHorizontal map )
+  modify ( moveVertical map )
 
   pl <- get
   let V2 x y = pl ^. pos
@@ -98,9 +96,9 @@ restrict :: Player -> Player
 restrict pl@Player{..}
   = pl & dy %~ min 7 & dx %~ \ dx -> if abs dx < 0.01 then 0 else dx
 
-moveVertical :: Player -> Player
-moveVertical pl
-  | any ( uPl `intersect` ) obss = pl & dy .~ 0
+moveVertical :: Map -> Player -> Player
+moveVertical map pl
+  | map `mapCollise` uPl = pl & dy .~ 0
     & isOnSolidGround .~ True
     & mayJump .~ False
     & canJumpedTwice .~ True
@@ -108,9 +106,9 @@ moveVertical pl
   where
     uPl = pl & pos %~ (+) ( V2 0 ( pl ^. dy ) )
 
-moveHorizontal :: Player -> Player
-moveHorizontal pl
-  | any ( uPl `intersect` ) obss = pl & dx .~ 0
+moveHorizontal :: Map -> Player -> Player
+moveHorizontal map pl
+  | map `mapCollise` uPl = pl & dx .~ 0
   | otherwise = uPl
   where
     uPl = pl & pos %~ (+) ( V2 ( pl ^. dx ) 0 )
@@ -123,10 +121,16 @@ main = do
   initializeAll
   window <- createWindow "Hamath" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
-  void $ evalStateT appLoop ( App Set.empty p renderer )
+  void $ evalStateT appLoop ( App Set.empty p renderer ( Map obss ) )
   quit
   where
     p = Player ( V2 300 350 ) True False False 0 0 True False
+
+    obss = [ Obstacle 0 400 800 50
+           , Obstacle 0 200 50 200
+           , Obstacle 450 200 50 200
+           , Obstacle 50 250 150 10
+           ]
 
 keyPressed = keyWithState Pressed
 keyReleased = keyWithState Released
@@ -147,7 +151,7 @@ setKeyState events keys code
 updatePlayer :: [Event] -> App -> App
 updatePlayer events app@App{..} = app{ _keys = ukeys, _player = pl }
   where
-    pl = evalState ( update uPressed lPressed rPressed ) _player
+    pl = evalState ( update _map uPressed lPressed rPressed ) _player
     ukeys = foldl ( setKeyState events ) _keys [ KeycodeUp, KeycodeRight, KeycodeLeft, KeycodeQ ]
 
     uPressed = KeycodeUp `elem` ukeys
@@ -161,7 +165,8 @@ drawScene App{..} = do
   rendererDrawColor _renderer $= V4 0 0 0 0
 
   draw _renderer _player
-  mapM_ ( draw _renderer ) obss
+  -- mapM_ ( draw _renderer ) obss
+  draw _renderer _map
 
   present _renderer
 
