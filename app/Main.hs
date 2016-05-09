@@ -38,7 +38,7 @@ data Player =
 makeLenses ''Player
 
 instance Collisionable Player where
-  toRect Player{..} = ( px, py, 20, 20 )
+  toRect Player{..} = ( px, py, 16, 16 )
     where
       V2 px py = _pos
 
@@ -119,7 +119,7 @@ onGround = get >>= \p -> return ( p ^.isOnSolidGround )
 main :: IO ()
 main = do
   initializeAll
-  window <- createWindow "Hamath" defaultWindow
+  window <- createWindow "Hamath" ( defaultWindow { windowInitialSize  = V2 1024 768 } )
   renderer <- createRenderer window (-1) defaultRenderer
   void $ evalStateT appLoop ( App Set.empty p renderer ( Map obss ) )
   quit
