@@ -21,6 +21,7 @@ library
                      , linear
                      , mtl
                      , sdl2
+                     , aeson
   default-language:    Haskell2010
 
 executable hamath-exe

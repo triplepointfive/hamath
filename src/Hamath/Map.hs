@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Hamath.Map where
 
+import Data.Aeson
 import Linear.Affine ( Point(..) )
 
 type Rect = ( Float, Float, Float, Float )
@@ -28,3 +30,31 @@ data Map = Map
 
 mapCollise :: Collisionable a => Map -> a -> Bool
 mapCollise Map{..} obj = any ( intersect obj ) obstacles
+
+data Tileset
+  = Tileset
+  { columns    :: Int
+  , firstgid   :: Int
+  , imagePath  :: FilePath
+  , name       :: String
+  } deriving ( Show, Eq )
+
+data Layer
+  = Layer
+  { layerName :: String
+  , datum     :: [ Int ]
+  } deriving ( Show, Eq )
+
+data Chunk
+  = Chunk
+  { nextobjectid :: Int
+  , tilesets     :: [ Tileset ]
+  , layers       :: [ Layer ]
+  } deriving ( Show, Eq )
+
+instance FromJSON Tileset where
+  parseJSON ( Object v ) = Tileset
+    <$> v .: "columns"
+    <*> v .: "firstgid"
+    <*> v .: "image"
+    <*> v .: "name"
