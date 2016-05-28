@@ -58,3 +58,14 @@ instance FromJSON Tileset where
     <*> v .: "firstgid"
     <*> v .: "image"
     <*> v .: "name"
+
+instance FromJSON Layer where
+  parseJSON ( Object v ) = Layer
+    <$> v .: "name"
+    <*> v .: "data"
+
+instance FromJSON Chunk where
+  parseJSON ( Object v ) = Chunk
+    <$> v .: "nextobjectid"
+    <*> v .: "tilesets"
+    <*> v .: "layers"
